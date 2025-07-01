@@ -34,13 +34,17 @@ export function useMLModel() {
     epochs: 0,
     classes: ["book", "cube", "phone"],
   })
-
-  // Добавить новые состояния после существующих useState
   const [savedModels, setSavedModels] = useState<string[]>([])
   const [currentModelName, setCurrentModelName] = useState<string>("")
+  const [isClient, setIsClient] = useState(false)
 
   const classNames = ["book", "cube", "phone"]
   const modelRef = useRef<tf.LayersModel | null>(null)
+
+  // Проверяем, что мы на клиенте
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   const initTensorFlow = async () => {
     try {
@@ -49,8 +53,10 @@ export function useMLModel() {
       console.log("Backend:", tf.getBackend())
 
       // Загружаем список сохраненных моделей
-      const models = JSON.parse(localStorage.getItem("saved_models") || "[]")
-      setSavedModels(models)
+      if (typeof window !== "undefined") {
+        const models = JSON.parse(localStorage.getItem("saved_models") || "[]")
+        setSavedModels(models)
+      }
     } catch (error) {
       console.error("Ошибка инициализации TensorFlow.js:", error)
     }
@@ -194,6 +200,7 @@ export function useMLModel() {
                 accuracy: logs.val_accuracy || logs.accuracy || 0,
                 loss: logs.val_loss || logs.loss || 0,
                 epochs: epoch + 1,
+                classes: classNames,
               }))
             }
           },
@@ -216,7 +223,7 @@ export function useMLModel() {
       setIsTraining(false)
       setTrainingProgress(0)
     }
-  }, [dataset, createModel, prepareTrainingData])
+  }, [dataset, createModel, prepareTrainingData, classNames])
 
   // Предсказание
   const predict = useCallback(
@@ -252,8 +259,6 @@ export function useMLModel() {
     [isModelLoaded, preprocessImage, classNames],
   )
 
-  // Добавить функции для работы с localStorage после modelRef
-
   // Сохранение модели в localStorage
   const saveModel = useCallback(
     async (modelName: string) => {
@@ -276,13 +281,16 @@ export function useMLModel() {
           datasetSize: Object.values(dataset).reduce((sum, samples) => sum + samples.length, 0),
         }
 
-        localStorage.setItem(`model_metadata_${modelName}`, JSON.stringify(modelMetadata))
+        if (typeof window !== "undefined") {
+          localStorage.setItem(`model_metadata_${modelName}`, JSON.stringify(modelMetadata))
 
-        // Обновляем список сохраненных моделей
-        const existingModels = JSON.parse(localStorage.getItem("saved_models") || "[]")
-        const updatedModels = [...existingModels.filter((name: string) => name !== modelName), modelName]
-        localStorage.setItem("saved_models", JSON.stringify(updatedModels))
-        setSavedModels(updatedModels)
+          // Обновляем список сохраненных моделей
+          const existingModels = JSON.parse(localStorage.getItem("saved_models") || "[]")
+          const updatedModels = [...existingModels.filter((name: string) => name !== modelName), modelName]
+          localStorage.setItem("saved_models", JSON.stringify(updatedModels))
+          setSavedModels(updatedModels)
+        }
+
         setCurrentModelName(modelName)
 
         console.log(`Модель "${modelName}" успешно сохранена`)
@@ -305,19 +313,21 @@ export function useMLModel() {
       const loadedModel = await tf.loadLayersModel(`localstorage://${modelKey}`)
 
       // Загружаем метаданные
-      const metadataStr = localStorage.getItem(`model_metadata_${modelName}`)
-      if (!metadataStr) {
-        throw new Error("Метаданные модели не найдены")
+      if (typeof window !== "undefined") {
+        const metadataStr = localStorage.getItem(`model_metadata_${modelName}`)
+        if (!metadataStr) {
+          throw new Error("Метаданные модели не найдены")
+        }
+
+        const metadata = JSON.parse(metadataStr)
+
+        // Обновляем состояние
+        setModel(loadedModel)
+        modelRef.current = loadedModel
+        setIsModelLoaded(true)
+        setModelStats(metadata.stats)
+        setCurrentModelName(modelName)
       }
-
-      const metadata = JSON.parse(metadataStr)
-
-      // Обновляем состояние
-      setModel(loadedModel)
-      modelRef.current = loadedModel
-      setIsModelLoaded(true)
-      setModelStats(metadata.stats)
-      setCurrentModelName(modelName)
 
       console.log(`Модель "${modelName}" успешно загружена`)
       return true
@@ -337,14 +347,16 @@ export function useMLModel() {
         // Удаляем модель TensorFlow.js
         await tf.io.removeModel(`localstorage://${modelKey}`)
 
-        // Удаляем метаданные
-        localStorage.removeItem(`model_metadata_${modelName}`)
+        if (typeof window !== "undefined") {
+          // Удаляем метаданные
+          localStorage.removeItem(`model_metadata_${modelName}`)
 
-        // Обновляем список сохраненных моделей
-        const existingModels = JSON.parse(localStorage.getItem("saved_models") || "[]")
-        const updatedModels = existingModels.filter((name: string) => name !== modelName)
-        localStorage.setItem("saved_models", JSON.stringify(updatedModels))
-        setSavedModels(updatedModels)
+          // Обновляем список сохраненных моделей
+          const existingModels = JSON.parse(localStorage.getItem("saved_models") || "[]")
+          const updatedModels = existingModels.filter((name: string) => name !== modelName)
+          localStorage.setItem("saved_models", JSON.stringify(updatedModels))
+          setSavedModels(updatedModels)
+        }
 
         // Если удаляем текущую модель, сбрасываем состояние
         if (currentModelName === modelName) {
@@ -373,16 +385,18 @@ export function useMLModel() {
 
   // Получение метаданных модели
   const getModelMetadata = useCallback((modelName: string) => {
+    if (typeof window === "undefined") return null
     const metadataStr = localStorage.getItem(`model_metadata_${modelName}`)
     return metadataStr ? JSON.parse(metadataStr) : null
   }, [])
 
   // Инициализация TensorFlow.js
   useEffect(() => {
-    initTensorFlow()
-  }, [])
+    if (isClient) {
+      initTensorFlow()
+    }
+  }, [isClient])
 
-  // Обновить return statement, добавив новые функции
   return {
     model,
     isModelLoaded,

@@ -444,7 +444,7 @@ export function ModelTrainer({
 
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-300">Классы:</span>
-                  <span className="text-sm text-gray-400">{modelStats.classes.length}</span>
+                  <span className="text-sm text-gray-400">{modelStats.classes?.length || 3}</span>
                 </div>
 
                 <div className="flex justify-between items-center">
